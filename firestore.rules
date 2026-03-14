@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: leads
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - email: string (required, email format)
+    //   - phone: string (optional)
+    //   - message: string (required)
+    //   - service: string (optional)
+    //   - source: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "oloyedebamise8@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidLead(data) {
+      return data.keys().hasAll(['name', 'email', 'message', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.message is string && data.message.size() > 0 && data.message.size() < 5000 &&
+             data.createdAt is timestamp;
+    }
+
+    match /leads/{leadId} {
+      // Allow anyone to create a lead (public submission)
+      allow create: if isValidLead(request.resource.data);
+      
+      // Only admin can read/list/delete leads
+      allow read, list, delete: if isAdmin();
+      
+      // No updates allowed to leads once submitted for integrity
+      allow update: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+  }
+}
